@@ -1,0 +1,2722 @@
+
+All plugins are written using the C# programming language.
+
+uMod provides core components and a consistent game-agnostic API for implementing plugins universally across all supported games.
+
+uMod is not affilliated with game developers and plugin developers will often need to familiarize themselves with the API provided by the game. Game-specific API's can be obtained with a decompiler, such as dotPeek.
+
+uMod provides common functionality to easily scaffold commands, configuration, localization, and more. Additionally uMod provides hundreds of hooks to modify or listen for game-specific events. However, uMod does not document or support the game-specific API's.
+
+Getting Started
+Below is a minimal example of a uMod plugin.
+
+umod/plugins/EpicStuff.cs
+
+namespace uMod.Plugins
+{
+    [Info("Epic Stuff", "Unknown Author", "0.1.0")]
+    [Description("Makes epic stuff happen")]
+    class EpicStuff : Plugin
+    {
+        private void Init()
+        {
+            Logger.Info("A baby plugin is born!");
+        }
+
+        // The rest of the code magic
+
+        // TODO (you): Make more epic stuff
+    }
+}
+Versioning
+Any time a plugin is updated, it is expected that the version will be incremented. It is recommended to use semantic versioning to determine how a version should be incremented...
+
+5.7.0
+
+Major - Breaking changes. Not backwards compatible with previous major release.
+Minor - Added functionality or features added. No breaking changes.
+Patch - Bug fixes. Backwards compatible with no change in functionality.
+Hooks
+A hook is a method which is invoked when a player or server performs a particular action. For example, when a player chats with other players, the OnPlayerChat hook is invoked. The OnPlayerChat hook intercepts normal chat behavior and provides the opportunity for a plugin to modify or cancel the message.
+
+More details about implementing hooks may be found in the Hooks guide.
+
+Commands
+A command is a method that a player or server administrators may use to invoke a particular action upon command. Commands are typically separated into two categories: Chat commands, and Console commands.
+
+Chat commands are in-game commands entered via the in-game chat, usually prefixed by a forward slash /.
+
+Console commands may be executed from the server console or an in-game console interface (when the game provides one).
+
+More details about implementing commands may be found in the Commands guide.
+
+Configuration
+Plugins are quite often accompanied by a configuration file that contains options which server administrators can easily change without any knowledge of programming or fear that their changes will be overwritten with the next update.
+
+Configuration files may be in the JSON or TOML formats. JSON or JavaScript Object Notation files have a .json file extension and represent lightweight human-readable data-interchange format. Similarly, TOML or Tom's Obvious, Minimal Language files have a .toml file extension and offer a more user-friendly alternative to JSON.
+
+More details about implementing configuration files in plugins can be found in the Configuration guide.
+
+Localization
+When a plugin needs to send a message to a player it is necessary to ensure these messages can be automatically translated into the preferred language of the recipient.
+
+Plugins should always use a Localization provider when sending messages. English is required, but plugins may provide other languages by default. Server administrators can easily add additional translations themselves using a simple file naming convention and JSON.
+
+More details on how to implement localization may be found in the Localization guide.
+
+
+
+uMod supports hundreds of hooks out of the box and more can be implemented by plugins.
+
+Observer pattern
+Often referred to as the "pub/sub" or the "Publish-subscribe" pattern, the observer pattern is the key pattern used by hooks.
+
+uMod will search plugins for any subscriptions to a hook when the hook is called. Hook methods are then invoked by uMod and often have additional return behavior which modifies or cancels the default game behavior.
+
+Global vs. local scope
+Global
+Normally hooks are dispatched from the global scope which is accessed via the primary Interface like so:
+
+Interface.uMod.CallHook("MyTestHook");
+Alternatively, global hooks may be dispatched directly from the Interface class:
+
+Interface.CallHook("MyTestHook");
+Local
+Plugins may dispatch hooks locally in a similar way:
+
+CallHook("MyTestHook");
+uMod.Common.IPlugin MyPlugin;
+
+void Loaded()
+{
+    MyPlugin?.CallHook("MyTestHook");
+}
+Subscription
+All private methods in a plugin class become hooks when the plugin loads. When a hook is invoked, all hook methods with a matching name (and matching parameters) are invoked in every plugin that subscribes to the hook.
+
+bool CanPlayerLogin(string playerName, string playerId, string playerIp)
+{
+    Logger.Info("No one can connect");
+    return false; // By returning false, no players may connect to this server
+}
+The above method uses the CanPlayerLogin hook and (by returning false) prevents anyone from connecting to the server.
+
+Hook attribute
+Hook methods with private access modifiers are automatically registered and subscribed when a plugin is loaded. When implementing hook methods with public access modifiers it is necessary to annotate the methods with the [Hook] attribute.
+
+[Hook]
+public bool CanPlayerLogin(string playerName, string playerId, string playerIp)
+{
+    return false;
+}
+A list of all available hooks categorized by game can be found here.
+
+If the method name does not match the name of the hook, the Hook attribute may specify the name explicitly.
+
+[Hook("CanPlayerLogin")]
+public bool MyCanPlayerLogin(string playerName, string playerId, string playerIp)
+{
+    return false;
+}
+Async attribute
+Annotate a hook method with the [Async] attribute to perform computationally expensive operations in a background thread. Asynchronous hooks may not have return behavior or integration with other hooks.
+
+[Async]
+void OnServerSave()
+{
+    /* Perform expensive operation */
+}
+Manual subscription
+Typically it is not necessary to subscribe or unsubscribe from hooks, however it is sometimes useful to control which hook methods are subscribed.
+
+Unsubscribe
+The example method below unsubscribes OnPlayerChat if chatFeatureEnabled is false. Please consider the Configuration documentation for details on how to properly implement configuration options. For the purpose of this example we will use a simple local variable that is always false.
+
+bool chatFeatureEnabled = false;
+
+void Init()
+{
+    if (!chatFeatureEnabled)
+    {
+        Unsubscribe(nameof(OnPlayerChat));
+    }
+}
+
+object OnPlayerChat(IPlayer player, string message)
+{
+    // Do stuff
+}
+Signature
+
+bool Unsubscribe(string hookName);
+Subscribe
+After unsubscribing from a hook, as in the previous example, the plugin may re-subscribe again to re-enable the plugin's chat behavior.
+
+[Command("epic_chat_enable")]
+void EnableChatBehaviorCommand(IPlayer player)
+{
+    if (player.IsAdmin)
+    {
+        Logger.Info("Enabling chat behavior");
+        chatFeatureEnabled = true;
+        Subscribe(nameof(OnPlayerChat));
+    }
+}
+The above command will allow admins to re-enable the special chat behavior.
+
+Signature
+
+bool Subscribe(string hookName);
+IsSubscribed
+Check whether or not a hook is currently subscribed using the IsSubscribed method.
+
+Signature
+
+bool IsSubscribed(string hookName);
+Overloading
+If multiple methods are subscribed to the same hook, the hook methods with parameters that match the supplied arguments will be invoked.
+
+For example, if a plugin were to implement a new hook named EpicHook and dispatch it twice using different parameters like so:
+
+int EpicNumber = 42;
+float EpicFloat = 77.7f;
+string EpicString = "Whoa";
+
+Interface.CallHook("EpicHook", EpicNumber, EpicFloat);
+Interface.CallHook("EpicHook", EpicNumber, EpicString);
+Another plugin could subscribe to the new "EpicHook" like so:
+
+void EpicHook(int epicNumber, float epicFloat)
+{
+    Logger.Info($"Received a number '{epicNumber}' and float '{epicFloat}'");
+}
+
+void EpicHook(int epicNumber, string epicString)
+{
+    Logger.Info($"Received a number '{epicNumber}' and string '{epicString}'");
+}
+And finally, the expected output after combining both implementations would be:
+
+Received a number '42' and float '77.7'
+Received a number '42' and string 'Whoa'
+Parameter substitution
+Parameter substitution is a form of "magic" where an argument is converted to another type before a hook method is invoked.
+
+Create a converter by implementing a method and annotating it with the Converter attribute.
+
+The first parameter of the converter method is the input type (or TInput)
+The return type of the converter method is the output type (or TOutput)
+When a hook within the plugin scope receives an argument of type TInput but it does not match the expected parameter type TOutput , then the corresponding converter method will attempt to convert the argument to the expected type before calling the hook.
+
+private Dictionary<int, MockData> mockData = new Dictionary<int, MockData>();
+
+class MockData
+{
+    public int ID = 1;
+}
+
+// TInput: int
+// TOutput: MockData
+[Converter]
+MockData ConvertMockData(int id)
+{
+    mockData.TryGetValue(id, out MockData mockDataImpl);
+
+    return mockDataImpl;
+}
+
+[Hook("OnAnyHook")]
+void OnAnyHook(MockData mockDataImpl)
+{
+    if (mockDataImpl != null)
+    {
+        Logger.Info($"Converted {mockDataImpl.ID}");
+    }
+    else
+    {
+        Logger.Info("No mockData found");
+    }
+}
+// Later..
+mockData.Add(1, new MockData());
+CallHook("OnAnyHook", 1);
+In the example above, the hook OnAnyHook is called and passed a integer. Before the hook is called, the converter method converts the integer to the concrete MockData type.
+
+The IPlayer/GamePlayer subtitution is baked-in and does not require additional converters to be specified.
+
+Return behavior
+A passive hook is a hook which as no return behavior. Return behavior is used to modify or change the outcome of game functionality. Each individual hook may behave differently and it is generally recommended to consider a hook's documentation to understand it's return behavior. There are 4 ways to categorize return behavior...
+
+Non-null cancellation
+Returning any value except null will cancel the default behavior.
+
+True/false override
+Returning false will cancel default behavior and returning true will continue default behavior.
+
+Object override
+Returning an object of a particular class will override default behavior.
+
+Primitive override
+Returning a primitive (e.g. integer, float) will override default behavior.
+
+Deferral
+Hook conflicts can be resolved easily by annotating a hook with the Defer attribute.
+
+A deferred hook will be skipped if any plugin named in the Defer annotation returns anything other than null.
+
+umod/plugins/FirstPlugin.cs (snippet)
+
+bool OnJump(IPlayer player)
+{
+    return false;
+}
+umod/plugins/SecondPlugin.cs (snippet)
+
+[Defer("FirstPlugin")]
+bool OnJump(IPlayer player)
+{
+    return true;
+}
+In the above scenario, if both plugins are loaded, then the OnJump method of SecondPlugin will be skipped because the OnJump method of FirstPlugin returned a non-null value.
+
+If only one plugin is loaded, the hook will be invoked normally (in either case) and no deferral will occur.
+
+For very popular hooks, or in the case where many deferrals are needed, it's recommended to use hook events instead.
+
+Events
+The hook event system provides a convenient passthru interface for disparate plugins to share generic state information and wrap the normal hook execution workflow.
+
+When multiple plugins use the same hook to modify return behavior in different ways, return conflicts may be difficult to resolve. Hook priority or load order (e.g. Oxide) is a poor solution to this problem.
+
+To help resolve hook conflicts, the hook workflow is split into 5 events: Before, After, Completed, Failed Canceled.
+
+Before hooks are executed first.
+Completed hooks are executed if no hook methods fail or cancel the hook.
+Failed hooks are executed if any hook fails (usually due to an exception)
+Canceled hooks are executed if any hooks attempts to cancel the hook.
+After hooks are executed last regardless of the final hook state (completed, failed, canceled)
+umod/plugins/FirstPlugin.cs (snippet)
+
+bool IsMuted(IPlayer player)
+{
+    return player.BelongsToGroup("firstplugin.muted");
+}
+
+// This hook will be called first
+[Before]
+void OnPlayerChat(IPlayer player, string message, HookEvent e)
+{
+    if (IsMuted(player))
+    {
+        // Communicate to other plugins using OnPlayerChat that execution should be canceled (and why)
+        e.Cancel("Player is muted");
+    }
+}
+Any hook at any point in the hook execution workflow may observe or modify the event state and register callbacks to be triggered should the event state update.
+
+umod/plugins/SecondPlugin.cs (snippet)
+
+bool OnPlayerChat(IPlayer player, string message, HookEvent e)
+{
+    // Has a previously executed hook tried cancel the hook event
+    if (e.Canceled)
+    {
+        player.Reply(e.StateReason);
+        return false;
+    }
+
+    // In case another hook post-execution attempts to cancel the hook event
+    e.Context.Canceled(delegate(Plugin plugin, HookEvent canceledArgs)
+    {
+        player.Reply(canceledArgs.StateReason);
+        canceledArgs.FinalValue = false;
+    });
+
+    return true;
+}
+
+[Completed("OnPlayerChat")]
+void OnPlayerChatCompleted(IPlayer player, string message, IServer server)
+{
+     // We know this player is not muted, so broadcast their message
+     server.Broadcast(message, player.Name);
+}
+Please consider the Hook Events documentation for more information.
+
+Namespaces
+When a hook has large scope it is possible to separate the hook into different methods. Hook namespacing provides an easy way to ensure all concerns are executed when dispatched from the global scope while still giving developers the flexibility to dispatch specific concerns individually from the plugin scope.
+
+For example, if a plugin were to have multiple initialization concerns and in some cases later need to reinitialize one particular concern then namespacing that concern would help avoid the need for any additional abstractions while also leveraging the existing hook functionality as documented above.
+
+void Init()
+{
+    Logger.Info("Main initialization");
+   // Main initialization
+}
+
+[Hook("Init.Concern")]
+void InitConcern()
+{
+    Logger.Info("Concern initialization");
+    // Code here
+}
+Example executation using the above hook definitions
+
+// Execute both "Init" hooks
+CallHook("Init");
+// Prints: Main initialization
+// Prints: Concern initialization
+
+// Execute a specific concern
+CallHook("Init.Concern");
+// Prints: Concern initialization
+Some keywords are reserved and cannot be used as namespaces: After, Canceled, Completed, Failed None, and Started.
+
+Introduction
+Commands allow administrators and players to invoke methods upon command by integrating with command-line and chat interfaces available in various games.
+
+Writing commands
+A simple command is a method annotated with a Command attribute that accepts at least two objects that implement the IPlayer and IArgs interfaces respectively.
+
+[Command("test")]
+private void TestCommand(IPlayer player, IArgs args)
+{
+    player.Reply("Test successful!");
+}
+Input: /test
+Output: Test successful!
+
+Named arguments
+Add named arguments to define minimum input expectations and make command validation easier.
+
+[Command("poke {player}")]
+private void PokeCommand(IPlayer player, IArgs args, IPlayerManager players)
+{
+    // Check if required parameter is specified
+    if (args.IsValid)
+    {
+        // Find a player matching that name or ID
+        IPlayer target = players.FindPlayer(args.GetString("player"), PlayerFilter.Connected);
+        if (target != null)
+        {
+            // Poke player
+            target.Message($"{player.Name} poked you!");
+        }
+        else
+        {
+            player.Reply("No player found.");
+        }
+    }
+    else
+    {
+        player.Reply("Invalid syntax: /poke {player}");
+    }
+}
+The last parameter players in the above example is optional in command signatures. But If specified, a game-specific player manager is provided at run-time by the service container. In this case, the IPlayerManager implementation
+
+Named arguments may be specified as optional or with a default value
+
+// Optional argument
+[Command("poke {player?}")]
+// Optional argument with default value
+[Command("poke {player=Calytic}")]
+Although a command that has only optional arguments will always be considered valid, the HasArgument method may be used to determine if the argument was provided.
+
+if (args.HasArgument("player"))
+{
+    // do something with the argument
+}
+Furthermore, if a default value is provided, this may checked with the IsDefault method...
+
+if (args.IsDefault("player"))
+{
+    // we have a default argument
+}
+Argument arrays
+An argument array is an input parameter that takes a variable number of arguments much like the params keyword in C#.
+
+[Command("message {player} {message*}")]
+private void MessageCommand(IPlayer player, IArgs args, IPlayerManager players)
+{
+    // Check if required parameter is specified
+    if (args.IsValid)
+    {
+        // Find a player matching that name or ID
+        IPlayer target = players.FindPlayer(args.GetString("player"), PlayerFilter.Connected);
+        if (target != null)
+        {
+            // Combine message parameters
+            string message = args.GetArgument<string>("message");
+            // Send message
+            target.Message($"{player.Name} messaged you: {message}");
+        }
+        else
+        {
+            player.Reply("No player found.");
+        }
+    }
+    else
+    {
+        player.Reply("Invalid syntax: /message {player} {message}");
+    }
+}
+Argument arrays may be specified as optional
+
+// Optional argument array
+[Command("message {player} {message?*}")]
+Argument arrays may be obtained as an array of strings or as a combined string.
+
+string message = args.GetArgument<string>("message");
+string[] message = args.GetArgument<string[]>("message");
+Permissions
+The Permission attribute allows command usage to be easily restricted to players who are granted a particular permission.
+
+[Command("test"), Permission("epicstuff.use")]
+private void TestCommand(IPlayer player, IArgs args)
+{
+    player.Reply("Test successful!");
+}
+Permission attributes will be registered and authorized with the plugin prefix automatically prepended if it is not explicitly specified.
+
+Both of the following permission annotations are essentially identical, assuming the plugin is named EpicStuff.
+
+Permission("epicstuff.use")
+Permission("use")
+Localization
+Command names may be specified in English but it is recommended to localize a command by annotating the command method with the Locale or Lang attribute.
+
+Consider the Localization documentation for general information regarding localization options.
+
+Locale
+Commands can be localized by annotating the command method with a [Locale] attribute and specifying the name of the locale property as the command name in the [Command] attribute.
+
+[Localization]
+interface IPluginLocale : ILocale
+{
+    string PokeCommand { get; }
+    string PokeReply { get; }
+}
+
+[Locale] // English
+class Default : IPluginLocale
+{
+    public string PokeCommand { get; } = "poke";
+    public string PokeReply { get; } = "Poking {player}";
+}
+
+[Locale("it")] // Italian
+class ITDefault : IPluginLocale
+{
+    public string PokeCommand { get; } = "colpire";
+    public string PokeReply { get; } = "Frugando {player}";
+}
+[Command("PokeCommand {player}")]
+[Locale(typeof(IPluginLocale))]
+private void PokeCommand(IPlayer player, IArgs args)
+{
+    if(args.IsValid)
+    {
+        player.Reply(
+            _<IPluginLocale>(player).PokeReply.Interpolate(("player", player.Name))
+        );
+    }
+    else
+    {
+        // Invalid syntax
+    }
+}
+Execute the above command method using either command:
+
+/poke Calytic
+/colpire Calytic
+
+Nested Locale Object
+Localization variables that are nested within a sub-class can be accessed using the . dot notation (e.g. [Command("MyCommand.Name")].
+
+class MyCommandInfo
+{
+    public string Name { get; set; }
+}
+
+[Localization]
+interface IPluginLocale : ILocale
+{
+    MyCommandInfo MyCommand { get; }
+}
+
+[Locale]
+class Default : IPluginLocale
+{
+    public MyCommandInfo MyCommand { get; } = new MyCommandInfo()
+    {
+        Name = "my_command"
+    };
+}
+
+[Locale("fr")]
+class FRDefault : IPluginLocale
+{
+    public MyCommandInfo MyCommand { get; } = new MyCommandInfo()
+    {
+        Name = "ma_commande"
+    };
+}
+[Command("MyCommand.Name")]
+[Locale(typeof(IPluginLocale))]
+private void TestCommand(IPlayer player, IArgs args)
+{
+    player.Reply("Test successful!");
+}
+Lang
+Commands can be localized by annotating the command method with a [Lang] attribute and specifying the key from the language dictionary as the command name in the [Command] attribute.
+
+private new void LoadDefaultMessages()
+{
+    Lang.RegisterMessages (new Dictionary<string, string>
+    {
+        {"MyCommand", "my_command"}
+    });
+
+    Lang.RegisterMessages (new Dictionary<string, string>
+    {
+        {"MyCommand", "ma_commande"}
+    }, "fr");
+}
+
+[Command("MyCommand")]
+[Lang]
+private void TestCommand(IPlayer player, IArgs args)
+{
+    player.Reply("Test successful!");
+}
+Execute the above command method using either of the following commands:
+
+/my_command
+/ma_commande
+
+The pattern requires that the command name matches the key of the Lang message, in this case MyCommand.
+
+Description and Help
+Command description and help information can localized by defining both as properties in the locale interface and annotating the command method with the [Description] and [Help] attributes.
+
+[Localization]
+interface IPluginLocale : ILocale
+{
+    string MyCommand { get; }
+    string MyCommandDescription { get; }
+    string MyCommandHelp { get; }
+}
+
+[Locale]
+class Default : IPluginLocale
+{
+    public string MyCommand { get; } = "my_command";
+    public string MyCommandDescription { get; } = "My command description";
+    public string MyCommandHelp { get; } = "/my_command";
+}
+
+[Locale("fr")]
+class FRDefault : IPluginLocale
+{
+    public string MyCommand { get; } = "ma_commande";
+    public string MyCommandDescription { get; } = "Ma description de commande";
+    public string MyCommandHelp { get; } = "/ma_commande";
+}
+The command below is a naive example because it will never be invalid (because it does not have any arguments). However, if it were invalid, then the description and help information would be sent to the player.
+
+[Command("MyCommand")]
+[Locale(typeof(IPluginLocale))]
+[Description("MyCommandDescription")]
+[Help("MyCommandHelp")]
+private void TestCommand(IPlayer player, IArgs args, ICommandInfo info)
+{
+    if (args.IsValid)
+    {
+        player.Reply("Test successful!");
+    }
+    else
+    {
+        player.Reply(info.GetDescription(player.Language.TwoLetterISOLanguageName));
+        player.Reply(info.GetHelp(player.Language.TwoLetterISOLanguageName));
+    }
+}
+
+Introduction
+Command input must be validated to ensure that the user is properly notified of invalid input and the command operates as expected.
+
+Command validation
+All of the following methods apply to commands that have command definitions where named arguments are specified.
+
+IsValid
+When a command specifies required arguments in the command definition, it is trivial to determine if all of the required arguments were provided with the IArgs.IsValid property.
+
+[Command("poke {player}")]
+void PokeCommand(IPlayer player, IArgs args)
+{
+    if (args.IsValid)
+    {
+        // Execute the command
+    }
+    else
+    {
+        // Invalid syntax
+    }
+}
+HasArgument
+The existence of an optional argument may be determined with the IArgs.HasArgument method.
+
+[Command("poke {player?}")]
+void PokeCommand(IPlayer player, IArgs args)
+{
+    if (args.HasArgument("player"))
+    {
+        // Do something with the argument
+    }
+    else
+    {
+        // Invalid syntax
+    }
+}
+IsDefault
+When a named argument specifies a default value, the IArgs.IsDefault method can determine whether the default value was provided.
+
+[Command("poke {player=Calytic}")]
+void PokeCommand(IPlayer player, IArgs args)
+{
+    if (args.IsDefault("player"))
+    {
+        // Do something with the default argument
+    }
+}
+IsArgument
+The IArgs.IsArgument method attempts to parse the provided string as the type specified and determine if it is valid as that type.
+
+[Command("poke {player}")]
+void PokeCommand(IPlayer player, IArgs args)
+{
+    if (args.IsArgument<ulong>("player"))
+    {
+        ulong playerID = args.GetUInt64("player");
+        // Do something with the ulong
+    }
+}
+GetArgument
+The GetArgument method provides a simple way to get a named argument and may specify an optional default if the argument is not supplied.
+
+[Command("poke {player?}")]
+void PokeCommand(IPlayer player, IArgs args)
+{
+    string playerArg = args.GetArgument("player", "Calytic");
+    // Do something with the argument
+}
+The TryGetArgument method will pipe the argument to an out parameter and return true or false if the argument exists.
+
+[Command("poke {player}")]
+void PokeCommand(IPlayer player, IArgs args)
+{
+    if (args.TryGetArgument("player", out string playerArg))
+    {
+        // Do something with the argument
+    }
+    else
+    {
+        // No argument found
+    }
+}
+Argument Index
+Arguments can be accessed directly by name or by index. Accessing arguments by index is not recommended because argument order may change. It exists mainly for compatibility with legacy command implementations.
+
+For backwards compatibility, accessing an argument by index will attempt to convert the argument to a string.
+
+[Command("poke {player}")]
+void PokeCommand(IPlayer player, IArgs args)
+{
+    string playerArg = args[0];
+
+    if(string.IsNullOrEmpty(playerArg))
+    {
+        // Do something with the argument
+    }
+    else
+    {
+        // No argument found
+    }
+}
+Accessing an argument by name will return an object or null.
+
+[Command("poke {player}")]
+void PokeCommand(IPlayer player, IArgs args)
+{
+    object playerArg = args["player"];
+
+    if(playerArg != null)
+    {
+        // Do something with the argument
+    }
+    else
+    {
+        // No argument found
+    }
+}
+Helper methods
+Similar to GetArgument a series of methods are provided which implicitly handle type casting and may perform better.
+
+GetString
+Gets the default string argument.
+
+Signature
+
+string GetString(string name, string @default = default)
+Implementation
+
+string argument = args.GetString("player", "default");
+GetBool / GetBoolean
+Gets the boolean representation of an argument.
+
+Signature
+
+bool GetBool(string name, bool @default = default)
+Implementation
+
+bool argument = args.GetBool("switch", true);
+Note that the following values are considered valid boolean values.
+
+True
+
+"1"
+"true"
+"yes"
+"y"
+False
+
+"0"
+"false"
+"no"
+"n"
+"none"
+"null"
+GetFloat
+Gets the float representation of the argument.
+
+Signature
+
+float GetFloat(string name, float @default = 0f)
+Implementation
+
+float argument = args.GetFloat("myFloat", 3.14f);
+GetDouble
+Gets the double representation of the argument.
+
+Signature
+
+double GetDouble(string name, double @default = 0)
+Implementation
+
+double argument = args.GetDouble("myDouble", 3.14);
+GetDecimal
+Gets the decimal representation of the argument.
+
+Signature
+
+decimal GetDecimal(string name, decimal @default = 0)
+Implementation
+
+decimal argument = args.GetDecimal("myDecimal", 3.14M);
+GetShort
+Gets the short (-32768, 32767) representation of the argument.
+
+Signature
+
+short GetShort(string name, short @default = 0)
+Implementation
+
+short argument = args.GetShort("myShort", 3);
+GetUShort
+Gets the unsigned short (0, 65535) representation of the argument.
+
+Signature
+
+ushort GetUShort(string name, ushort @default = 0)
+Implementation
+
+ushort argument = args.GetUShort("myUShort", 3);
+GetByte
+Gets the byte (0, 255) representation of the argument.
+
+Signature
+
+byte GetByte(string name, byte @default = 0)
+Implementation
+
+byte argument = args.GetByte("myByte", 3);
+GetSByte
+Gets the signed byte (-128, 127) representation of the argument.
+
+Signature
+
+sbyte GetSByte(string name, sbyte @default = 0)
+Implementation
+
+sbyte argument = args.GetSByte("mySByte", 3);
+GetInt / GetInteger
+Gets the integer (-2,147,483,648, 2,147,483,647) representation of the argument.
+
+Signature
+
+int GetInteger(string name, int @default = 0)
+Implementation
+
+int argument = args.GetInteger("myInteger", 3);
+GetUInt
+Gets the unsigned integer (0, 4,294,967,295) representation of the argument.
+
+Signature
+
+uint GetUInt(string name, uint @default = 0)
+Implementation
+
+uint argument = args.GetUInt("myUInteger", 3);
+GetLong / GetInt64
+Gets the long (~-9 quintillion, ~9 quintillion) representation of the argument.
+
+Signature
+
+long GetInt64(string name, long @default = 0)
+Implementation
+
+long argument = args.GetInt64("myLong", 3);
+GetULong / GetUInt64
+Gets the ulong (0, ~18 quintillion) representation of the argument.
+
+Signature
+
+ulong GetUInt64(string name, ulong @default = 0)
+Implementation
+
+ulong argument = args.GetUInt64("myULong", 3);
+GetTimeSpan
+Gets the time span representation of the argument.
+
+Signature
+
+TimeSpan GetTimeSpan(string name)
+Implementation
+
+TimeSpan timeSpan = args.GetTimeSpan("myTimeSpan");
+GetDateTime
+Gets the date-time representation of the argument.
+
+Signature
+
+DateTime GetDateTime(string name)
+Implementation
+
+DateTime dateTime = args.GetDateTime("myDateTime");
+GetPoint
+Gets the point representation of the argument.
+
+Signature
+
+Point GetPoint(string name, Point @default = null)
+Implementation
+
+Point position = args.GetPoint("myPosition", Point.Empty);
+GetPosition
+Gets the position representation of the argument.
+
+Signature
+
+Position GetPosition(string name, Position @default = null)
+Implementation
+
+Position position = args.GetPosition("myPosition", Position.Empty);
+GetPosition4
+Gets the position (4d) representation of the argument.
+
+Signature
+
+Position4 GetPosition4(string name, Position4 @default = null)
+Implementation
+
+Position4 position4 = args.GetPosition4("myPosition", Position4.Empty);
+
+Introduction
+Plugin configuration files are in the umod/config directory. By default, a plugin configuration file is named after the plugin that created them with a .json file extension.
+
+Why use configuration files?
+A configuration file gives server administrators a convenient way to configure plugin behavior.
+
+Server administrators are typically unfamiliar with programming and should not modify C# code in a production environment.
+
+Developers should implement configuration options for values that non-developers would want to modify. Offer as much flexibility as possible by ensuring that variables are configurable (with sensible defaults).
+
+Configuration schematic
+Define a class schematic to implement a serializable contract that represents the shape of the configuration file...
+
+umod/plugins/EpicStuff.cs
+
+namespace uMod.Plugins
+{
+    [Info("Epic Stuff", "Calytic", "1.0.0")]
+    [Description("Does epic stuff of course")]
+    class EpicStuff : Plugin
+    {
+        [Config]
+        class DefaultConfig
+        {
+            public bool Feature = true;
+            public int Distance = 10;
+        }
+    }
+}
+When the above plugin loads for the first time, a file with the shape defined above by the DefaultConfig class will be formatted as JSON and written to the filesystem...
+
+umod/config/EpicStuff.json
+
+{
+    "Feature" : true,
+    "Distance" : 10
+}
+TOML
+To use the TOML file format instead of JSON, simply specify a [Toml] attribute in addition to the existing [Config] attribute.
+
+[Config, Toml]
+class DefaultConfig
+{
+    public bool Feature = true;
+    public int Distance = 10;
+}
+umod/config/EpicStuff.toml
+
+Feature = true
+Distance = 10
+Resolved schematics
+For performance reasons, configuration files will be loaded and deserialized asynchronously in a background thread.
+
+The Loaded hook is invoked after all of the configuration files are finished loading in the background thread. Additionally, any number of parameters may be injected to give the plugin an opportunity to store the schematics locally.
+
+DefaultConfig config;
+
+void Loaded(DefaultConfig defaultConfig)
+{
+    config = defaultConfig;
+}
+Populating schematics
+Specify default configuration values with field or property initializers.
+
+[Config]
+class DefaultConfig
+{
+    public bool Feature = true;
+    public int Distance = 10;
+}
+Sometimes it may be necessary to have additional configuration values that cannot be specified using field or property initializers.
+
+void OnConfigCreate(DefaultConfig defaultConfig)
+{
+    #if UNITY
+      defaultConfig.Distance = 20;
+    #endif
+}
+Saving schematics
+Configuration files are loaded automatically when a plugin starts. Make changes directly to the file using the Files.GetDataFile method.
+
+[Command("test")]
+void MyTestCommand(IPlayer player)
+{
+    IDataFile<DefaultConfig> file = Files.GetDataFile<DefaultConfig>();
+    file.SaveAsync()
+      .Done(delegate()
+      {
+          Logger.Info("Config file saved!");
+      },
+      delegate(Exception ex)
+      {
+          Logger.Error($"File save failed: {ex.Message}");
+      });
+}
+The Files abstraction is a simple way to perform filesystem operations on Configuration and Localization data files. For more information on how to use data files, read the Data Files documentation.
+
+Multiple configurations
+Define secondary configurations by specifying a name in the Config annotation. Named configurations will be placed in a sub-directory.
+
+umod/config/EpicStuff/separate.json
+
+[Config("separate")]
+class MyOtherConfig
+{
+    public bool OtherFeature = true;
+}
+Upgrade path
+To automate an upgrade between configuration schematics where backwards compatibility is broken (e.g. modifying a data type, or adding/removing nesting), the Config annotation supports the Version option.
+
+Take for example the first version a configuration schematic as such:
+
+umod/plugins/EpicStuff.cs
+
+[Config(Version="1.0.0")]
+class DefaultConfig1
+{
+    public bool FeatureEnabled = true;
+    public float Distance = 10.01f;
+}
+The resulting file..
+
+umod/config/EpicStuff.json
+
+{
+    "FeatureEnabled" : true,
+    "Distance" : "10.01"
+}
+Next, copy the DefaultConfig1 schematic and change it's shape in a way that makes the previous schematic invalid. For example, changing the type of the Distance field from float to int.
+
+[Config(Version="2.0.0")]
+class DefaultConfig2
+{
+    public bool FeatureEnabled = true;
+    public int Distance = 10;
+}
+A fresh plugin installation would use the DefaultConfig2 schematic...
+
+umod/config/EpicStuff.json
+
+{
+    "FeatureEnabled" : true,
+    "Distance" : 10
+}
+But, if updating from the first version to the second, the configuration file will not load (yielding a serialization exception).
+
+To avoid that, handle the transformation between versions:
+
+void OnConfigUpgrade(DefaultConfig1 oldConfig, DefaultConfig2 newConfig)
+{
+    newConfig.Distance = (int)oldConfig.Distance;
+}
+Skipping versions
+When skipping versions, the upgrade path will sequentially iterate through all of the available upgrade hooks.
+
+Again, implement a new schematic (version 3.0.0)...
+
+umod/plugins/EpicStuff.cs
+
+[Config(Version="3.0.0")]
+class DefaultConfig3
+{
+    public class MyFeature
+    {
+        public bool Enabled = true;
+        public int OtherDistance = 20;
+    }
+
+    public MyFeature Feature = new MyFeature();
+    public int Distance = 10;
+}
+A fresh installation would look like...
+
+umod/config/EpicStuff.json
+
+{
+    "Feature" : {
+        "Enabled" : true,
+        "OtherDistance" : 20
+    },
+    "Distance" : 10
+}
+Implement another upgrade hook for the final transformation.
+
+void OnConfigUpgrade(DefaultConfig2 oldConfig, DefaultConfig3 newConfig)
+{
+    newConfig.Feature.Enabled = oldConfig.FeatureEnabled;
+}
+Finally, when upgrading from version 1.0.0 to 3.0.0 (skipping 2.0.0) the upgrade hooks are invoked sequentially...
+
+OnConfigUpgrade(DefaultConfig1, DefaultConfig2);
+OnConfigUpgrade(DefaultConfig2, DefaultConfig3);
+Configuration monitor
+Configuration monitoring, if enabled in the global plugin configuration, will automatically reload a plugin when it's configuration file is modified.
+
+Listen for configuration changes with the OnConfigChanged hook. Implementing OnConfigChanged will prevent a plugin from being reloaded automatically and allow a plugin to handle changes locally.
+
+void OnConfigChanged(DefaultConfig newConfig)
+{
+    config = newConfig;
+}
+
+Introduction
+Plugin localization files are in the umod/lang directory. By default, a plugin localization files are named after the plugin that created them with a .json file extension.
+
+Why use localization files?
+A localization file gives server administrators a convenient way of configuring plugin messages to support different languages.
+
+Developers should implement localization options for all messages printed by a plugin.
+
+Lang provider
+The Lang provider is a simple way for small plugins or plugins with a limited scope.
+
+new void LoadDefaultMessages()
+{
+    Lang.RegisterMessages (new Dictionary<string, string>
+    {
+        {"ExampleKey", "Example Message"}
+    });
+
+    Lang.RegisterMessages (new Dictionary<string, string>
+    {
+        {"ExampleKey", "Exemple de message"}
+    }, "fr");
+}
+
+[Command("example")]
+void ExampleCommand(IPlayer player)
+{
+    string ExampleMessage = Lang.GetMessage("ExampleKey", player);
+    player.Reply(ExampleMessage);
+}
+Register TOML messages
+Register messages as a TOML file instead of JSON.
+
+new void LoadDefaultMessages()
+{
+    Lang.RegisterToml (new Dictionary<string, string>
+    {
+        {"ExampleKey", "Example Message"}
+    });
+
+    Lang.RegisterToml (new Dictionary<string, string>
+    {
+        {"ExampleKey", "Exemple de message"}
+    }, "fr");
+}
+
+[Command("example")]
+void ExampleCommand(IPlayer player)
+{
+    string ExampleMessage = Lang.GetMessage("ExampleKey", player);
+    player.Reply(ExampleMessage);
+}
+Locale schematics
+The Locale provider is a memory-efficient way to scaffold and manage localization for larger plugins.
+
+[Localization]
+interface IPluginLocale : ILocale
+{
+    string ExampleKey { get; }
+}
+
+[Locale]
+class Default : IPluginLocale
+{
+    public string ExampleKey => "Example Message";
+}
+
+[Locale("fr")]
+class FRDefault : IPluginLocale
+{
+    public string ExampleKey => "Exemple de message";
+}
+
+[Command("example")]
+void ExampleCommand(IPlayer player)
+{
+    string ExampleMessage = Locale<IPluginLocale>(player).ExampleKey;
+    player.Reply(ExampleMessage);
+}
+TOML file
+Any schematic may use TOML as an alternative file format by simply annotating the schematic with the Toml attribute.
+
+[Localization, Toml]
+interface IPluginLocale : ILocale
+{
+    string ExampleKey { get; }
+}
+Multiple locale files
+Distribute localization data across multiple files by specifying a name for the locale schematic.
+
+[Localization("separate")]
+interface SeparatePluginLocale : ILocale
+{
+    string AnotherKey { get; }
+}
+The locale file storing this schematic would be named PluginName_separate.json
+
+Upgrade path
+Similarly to the configuration upgrade path, the Localization contracts support versioning and autoloading. The localization upgrade path is nearly identical to the configuration upgrade with two notable exceptions.
+
+All of the localization files (for every supported language) are upgraded all at once
+The upgrade hook OnLocaleUpgrade accepts the localization interface (not the concrete contracts).
+void OnLocaleUpgrade(IOldLocale oldLocale, INewLocale newLocale)
+{
+    newLocale.Feature.Message = oldLocale.FeatureMessage;
+}
+Plugin language file
+Both the Lang and Locale localization providers will store plugin localization data in the umod/lang folder. By default, the localization file is named after the plugin and uses the JSON data format (e.g. PluginName.json)
+
+English default
+Both uMod localization providers expect English to be the default language. Despite that, they will default to the server's configured language when available, not the plugin's.
+
+Player language
+If possible, always pass the IPlayer object that represents the message recipient into the GetMessage or Locale methods to ensure that the resulting message is in their configured language.
+
+Get the player's language
+[Command("epicstuff.language")]
+void TestLanguageCommand(IPlayer player)
+{
+    player.Reply(Lang.GetLanguage(player));
+    // Will output (by default): en
+}
+Set the player's language
+[Command("epicstuff.french")]
+void TestUpdateCommand(IPlayer player)
+{
+    Lang.SetLanguage(player, "fr");
+    player.Reply("Merci bien! Votre langue est le français");
+}
+Players can also set their language by using the included umod.lang, u.lang, or lang console or chat commands along with their desired, available two-letter language code.
+
+String formatting
+Interpolation
+As outlined in the official C# documentation, an interpolated string which is identified by a $ character is a string literal that may contain interpolation expressions. When resolved, the interpolation expressions are replaced by the string representations of the expressions.
+
+string greeting = "hello";
+string location = "world";
+
+string result = $"{greeting} {location}";
+// Result: "hello world"
+string.Format
+Another C# feature, string.Format is a commonly used method to replace placeholders in a string with arbitrary values.
+
+string result = string.Format("{0} {1}", "hello", "world");
+// Result: "hello world"
+Run-time interpolation
+Both of the above approaches have limitations, namely...
+
+Interpolation is a hard-coded language feature that cannot be customized by configuration.
+string.Format placeholders are index-based, which is non-descript and may lead to confusion.
+For those reasons, uMod provides an alternative method called run-time interpolation which combines both approaches.
+
+The run-time interpolator may use dictionary key-value-pairs and arbitrary objects.
+
+Dictionary
+string format = "{greeting} {location}";
+
+string result = format.Interpolate(new Dictionary<string, string>
+{
+    ["greeting"] = "hello",
+    ["location"] = "world"
+});
+// Result: "hello world"
+Object
+class MyGreeting
+{
+    [Placeholder("greeting")]
+    public string Greeting;
+    [Placeholder("location")]
+    public string Location;
+}
+
+result = format.Interpolate(new MyGreeting
+{
+    Greeting = "hello",
+    Location = "world"
+});
+// Result: "hello world"
+Nested Object
+Using the MyGreeting class from the previous example, placeholders may be nested and specified using the dot . notation.
+
+class MyGreetingContainer
+{
+    [Placeholder("container")]
+    MyGreeting Greetings = new MyGreeting() {
+        Greeting = "hello",
+        Location = "world"
+    };
+}
+
+string format = "{container.greeting} {container.location}";
+
+result = format.Interpolate(new MyGreetingContainer());
+// Result: "hello world"
+Formatting
+Formatting may be customized using format providers.
+
+string format = "{greeting} {location}, it is {date|hh:ss tt}";
+
+string result = format.Interpolate(new Dictionary<string, string>
+{
+    ["greeting"] = "hello",
+    ["location"] = "world",
+    ["date"] = DateTime.Now
+});
+
+// Result: "hello world, it is 2:36 PM"
+Pluralization
+Define multiple alternate formats separated by the | pipe operator to distinguish between singular and plural forms.
+
+string format = "banana|bananas";
+result = format.Choice(1);
+// Result: "banana"
+result = format.Choice(10);
+// Result: "bananas"
+Specify three forms to distinguish been zero, one, and many.
+
+string format = "There are no bananas|There is one banana|[1,*]There are multiple bananas";
+string result = format.Choice(0);
+// Result: "There are no bananas"
+result = format.Choice(1);
+// Result: "There is one banana"
+result = format.Choice(10);
+// Result: "There are multiple bananas"
+Pluralization is also available via the run-time interpolatorInterpolate method where the choiceAmount is specified as the last parameter.
+
+string format = "There is one {color} banana|There are multiple {color} bananas";
+
+Dictionary<string, string> placeholders = new Dictionary<string, string>
+{
+    ["color"] = "yellow"
+};
+
+string result = format.Interpolate(placeholders, 1);
+// Result: "There is one yellow banana"
+result = format.Interpolate(placeholders, 10);
+// Result: "There are multiple yellow bananas"
+Language codes
+uMod uses ISO-639-1 language codes to specify which language is being localized. For example...
+
+  en - English
+  fr - French
+  de - German
+  pl - Polish
+  ru - Russian
+  es - Spanish
+
+
+Introduction
+A schematic is a class that defines the shape of a file or message. The properties and fields of the schematic serve as blueprint to serialize and deserialize objects to/from intermediate formats such as JSON, TOML or Binary.
+
+JSON
+class MySchematic
+{
+    public bool Feature = true;
+    public int Distance = 10;
+}
+The above schematic may be used for a configuration file, localization file, or data file by annotating it with the appropriate attributes.
+
+By default, schematics will be serialized as Javascript Object Notiation (JSON).
+
+{
+    "Feature" : true,
+    "Distance": 10
+}
+TOML
+Annotate a schematic with the [Toml] attribute to serialize the schematic to the Tom's Obvious Markup Language (TOML)
+
+[Toml]
+class MySchematic
+{
+    public bool Feature = true;
+    public int Distance = 10;
+}
+Feature = true
+Distance = 10
+Binary
+Annotate a schematic with the [Binary] attribute to serialize the schematic to binary. Binary is not a human-readable format, thus the file will be serialized as a sequence of numbers.
+
+[Binary]
+class MySchematic : IBinaryObject
+{
+    public bool Sleeping = true;
+    public float Distance = 10;
+
+    void Write(BinaryWriter writer)
+    {
+        writer.Write(Sleeping);
+        writer.Write(Distance);
+    }
+
+    void Read(BinaryReader reader)
+    {
+        Sleeping = reader.ReadBoolean();
+        Distance = reader.ReadSingle();
+    }
+}
+Implementing the IBinaryObject interface is optional but it is recommended because it will improve the performance of serialization.
+
+Attribute names
+Annotate schematic fields or schematic properties with the [JsonProperty] or [TomlProperty] attribute to customize the name of the field or property in the intermediate format.
+
+JSON Attribute Names
+class MySchematic
+{
+    [JsonProperty("feature")]
+    public bool Feature = true;
+    [JsonProperty("distance")]
+    public int Distance = 10;
+}
+{
+    "feature" : true,
+    "distance": 10
+}
+TOML attribute names
+[Toml]
+class MySchematic
+{
+    [TomlProperty("feature")]
+    public bool Feature = true;
+    [TomlProperty("distance")]
+    public int Distance = 10;
+}
+feature = true
+distance = 10
+Spaces should not be used in attribute names. Use underscores instead.
+
+Ignored members
+Annotate a schematic field or property with the [JsonIgnore] or [TomlIgnore] attribute to prevent the field or property from being serialized.
+
+JSON ignored members
+class MySchematic
+{
+    public bool Feature = true;
+    [JsonIgnore]
+    public int Distance = 10;
+}
+{
+    "Feature" : true,
+}
+TOML ignored members
+[Toml]
+class MySchematic
+{
+    public bool Feature = true;
+    [TomlIgnore]
+    public int Distance = 10;
+}
+Feature = true
+Comments
+Annotate a schematic field or property with the [TomlComment] attribute. JSON files do not support comments.
+
+TOML comments
+[Toml]
+class MySchematic
+{
+    [TomlComment("Feature comment")]
+    public bool Feature = true;
+    public int Distance = 10;
+}
+# Feature comment
+Feature = true
+Distance = 10
+Alternatively, comments may be specified in [TomlProperty] attribute to the same effect..
+
+[Toml]
+class MySchematic
+{
+    [TomlProperty("feature", Comment = "Feature comment")]
+    public bool Feature = true;
+    [TomlProperty("distance")]
+    public int Distance = 10;
+}
+Nesting
+Nested objects are automatically handled without any additional annotations.
+
+JSON nesting
+class MySchematicFeature
+{
+    public bool Enabled = true;
+}
+
+class MySchematic
+{
+    public MySchematicFeature Feature = new MySchematicFeature;
+    public int Distance = 10;
+}
+{
+    "Feature" : {
+        "Enabled" : true
+    },
+    "Distance" : 10
+}
+TOML nesting
+class MySchematicFeature
+{
+    public bool Enabled = true;
+}
+
+[Toml]
+class MySchematic
+{
+    public MySchematicFeature Feature = new MySchematicFeature;
+    public int Distance = 10;
+}
+Distance = 10
+
+[Feature]
+Enabled = true
+Multi-line strings
+TOML multi-line strings
+Annotate a schematic with the [TomlProperty] attribute and specify the MultiLine option as true.
+
+[Toml]
+class MySchematic
+{
+    [TomlProperty(MultiLine = true)]
+    public string MyString = @"greeting
+    world";
+}
+MyString = """greeting
+location"""
+
+A data file is a file which stores arbitrary data to be used by a plugin.
+
+File schematic
+A schematic is a class which represents the shape of the data file. By default, data schematics will be serialized as JSON on the filesystem unless otherwise specified. TOML and Binary are also supported with the file extensions .toml and .dat, respectively.
+
+class MyData
+{
+    public bool Sleeping = true;
+    public Position LastPosition;
+}
+Alternative formats
+Files may also be serialized as TOML or binary.
+
+Concurrency
+To minimize the impact of expensive I/O operations; read/write/batch operations are asynchronous (or non-blocking) by default. Promises are used to asynchronously read and write data on a background thread.
+
+Serializing data
+Serialization is the process of transforming the data schematic into a format that can be stored in a file.
+
+MyData myData = new MyData();
+myData.LastPosition = new Position(10, 10, 0);
+Files.WriteObject("myData", myData).Fail(Logger.Report);
+umod/data/MyPlugin/myData.json
+
+{
+    "Sleeping" : true,
+    "LastPosition" : {
+        "X" : 10,
+        "Y" : 10,
+        "Z" : 0
+    }
+}
+Deserializing data
+Deserialization is the process of transforming serialized data on the filesystem back into an in-memory object.
+
+Files.ReadObject<MyData>("myData")
+    .Done(delegate(MyData myData)
+    {
+        Logger.Info($"Position: {myData.LastPosition}");
+        // Prints: Position: (10, 10, 0)
+    },
+    delegate(Exception exception)
+    {
+        Logger.Report("Could not load file", exception);
+    });
+Batch operations
+Perform multiple file operations at once using WriteObjects and ReadObjects.
+
+Dictionary<string, MyData> writeBatch = new Dictionary<string, MyData>();
+
+writeBatch.Add("myData_1", new MyData());
+writeBatch.Add("myData_2", new MyData());
+
+Files.WriteObjects(writeBatch).Fail(Logger.Report);
+Reading operations resolve to an IEnumerable<MyData> object.
+
+Files.ReadObjects(new[]
+{
+    "myData_1",
+    "myData_2"
+})
+.Done(delegate(IEnumerable<MyData> data)
+{
+    Logger.Info($"Read data {data.Count()}");
+}, Logger.Report)
+Data files
+The above serialization methods are provided by the IDataFile<T> interface which may be used directly for more control over data files.
+
+Create file
+Create file with default value
+Create a data file object with a default value that does not exist on filesystem until saved
+
+IDataFile<MyData> Files.GetDataFile<MyData>("myData_1", true);
+Create file with existing value
+Create a data file object with a default value that does not exist on filesystem until saved
+
+MyData myData = new MyData();
+IDataFile<MyData> Files.GetDataFile<MyData>("myData_1", myData);
+Create file with callback
+Create a data file object that populates a default value using the specified callback.
+
+IDataFile<MyData> Files.GetDataFile<MyData>("myData_1", delegate() {
+    return new MyData();
+});
+MyData GetDefaultMyData()
+{
+    return new MyData();
+}
+IDataFile<MyData> Files.GetDataFile<MyData>("myData_1", GetDefaultMyData);
+Save file
+IDataFile<MyData> myDataFile = Files.GetDataFile<MyData>("myData_1", delegate() {
+    return new MyData();
+});
+myDataFile.SaveAsync().Fail(Logger.Report);
+Load file
+myDataFile.LoadAsync()
+    .Done(delegate(MyData myData)
+    {
+          Logger.Info("Data file loaded!");
+    },
+    Logger.Report);
+Check file existence
+Check if the file already exists
+
+if (myDataFile.Exists)
+{
+    Logger.Info($"File exists: {myDataFile.Path}");
+}
+Delete file
+Delete the file
+
+myDataFile.Delete();
+Directory helpers
+Check for the existence of files, delete files, or list files without creating data objects.
+
+Check file existence
+Check if a file exists.
+
+if (Files.Exists("myData.json"))
+{
+    Logger.Info("myData.json exists!");
+}
+Delete files
+Delete a single file to multiple files which match the specified pattern.
+
+Files.Delete("*.json")
+Get files
+Get a list of files that match the specified pattern.
+
+foreach(string file in Files.GetFiles("*.json"))
+{
+    Logger.Info($"{file} found!");
+}
+
+ntroduction
+Preprocessor directives are lines that begin with a # character that provide the compiler with special instructions which change the text of the source code and result in different source code being compiled. For more information about preprocessor directives, please consider the official documentation.
+
+Implementation
+Each game that uMod supports has an accompanying preprocessor symbol which is included in a plugin file automatically.
+
+In a universal plugin, these symbols may be used to separate code for different games.
+
+private bool CanClientLogin(string clientName, string clientId, string IpAddress)
+{
+#if RUST
+    // Rust-specific code
+#elif HURTWORLD
+    // Hurtworld-specific code
+#endif
+}
+When a plugin is compiled for Rust, only the first code will be compiled. Conversely, in a Hurtworld context, only the second code will be used.
+
+Game symbols
+Rust
+RUST
+
+7 Days To Die latest_experimental
+SEVENDAYS
+SEVENDAYSLATEST_EXPERIMENTAL
+Reign Of Kings
+REIGNOFKINGS
+The Forest
+THEFOREST
+Engine symbols
+Unity Engine - UNITY
+VRage Engine - VRAGE
+XNA Framework - XNA
+Custom symbols
+In some plugins you may see the DEBUG symbol or other symbols used. These are primarily for testing and debugging purposes.
+
+In order to enable these debugging code blocks, a preprocessor directive must be defined at the beginning of the plugin file.
+
+#define DEBUG
+
+using System;
+Then, elsewhere in a code...
+
+#if DEBUG
+    Logger.Debug("Some test related info");
+#endif
+
+
+Introduction
+A Gate is a container of possible actions that require authorization to control player access to a feature or set of features.
+
+Simple gate
+The following examples are naive demonstrations of how to use the gate system with a hypothetical hook OnJump.
+
+class MyJumpGate : uMod.Auth.Gate
+{
+    public MyJumpGate(IPlugin plugin) : base(plugin)
+    {
+    }
+
+    public bool Jumping(IPlayer player)
+    {
+        if (player.Name == "Calytic")
+        {
+            // Calytic cannot jump
+            return false;
+        }
+
+        // Everyone else can jump
+        return true;
+    }
+}
+The gate method definition (e.g. MyJumpGate.Jumping) must accept an IPlayer as the first parameter and return a boolean as above.
+
+Implement a hook, for example named OnJump, and check whether or not the player should be allowed to jump.
+
+bool OnJump(IPlayer player, MyJumpGate jumpGate)
+{
+    if (jumpGate.Allows(nameof(MyJumpGate.Jumping), player))
+    {
+        // Jumping was allowed
+        return true;
+    }
+
+    // Jumping was not allowed
+    return false;
+}
+Gate policy names are case in-sensitive and the player parameter is required.
+
+Any gate implementations within a plugin will be created automatically when a plugin loads and are available for injection in hooks via the service container.
+
+Configurated gate
+A configurated gate has policies that rely on a configuration file.
+
+The following example uses a configuration schematic to determine the Jumping policy.
+
+[Config]
+class MyConfig
+{
+    public bool JumpingAllowed = true;
+}
+
+class MyJumpGate : uMod.Auth.Gate
+{
+    MyConfig myConfig;
+
+    public MyJumpGate(IPlugin plugin, MyConfig myConfig) : base(plugin)
+    {
+        this.myConfig = myConfig;
+    }
+
+    public bool Jumping(IPlayer player)
+    {
+        return myConfig.JumpingAllowed;
+    }
+}
+
+bool OnJump(IPlayer player, MyJumpGate jumpGate)
+{
+    return jumpGate.Jumping(player);
+}
+The MyJumpGate constructor above will use dependency injection to inject the MyConfig configuration schematic once it is loaded.
+
+Hook gate
+Allow or deny access to a hook by annotating the hook method with the Allows or Denies attribute.
+
+Allows
+The player must be authorized by MyJumpGate.Jumping.
+
+[Hook("OnJump")]
+[Allows(typeof(MyJumpGate), nameof(MyJumpGate.Jumping))]
+bool OnJumpAllowed(IPlayer player)
+{
+    player.Reply("You jumped successfully!");
+    return true;
+}
+Denies
+The player must not be authorized by MyJumpGate.Jumping.
+
+[Hook"OnJump")]
+[Denies(typeof(MyJumpGate), nameof(MyJumpGate.Jumping))]
+bool OnJumpDenied(IPlayer player)
+{
+    player.Reply("You cannot jump, try working out!");
+    return false;
+}
+Aggregate policy
+Authorize a hook against multiple policies by annotating a hook method with the Any, All, or None attributes.
+
+For example, imagine a gate MyActionGate that implements two policies: jumping and flying. The following snippets demonstrate an aggregate policy.
+
+Any
+Example: jumping OR flying allowed
+
+// Either jumping OR flying is allowed
+[Any(typeof(MyActionGate), nameof(MyJumpGate.Jumping), nameof(MyJumpGate.Flying))]
+bool OnJump(IPlayer player)
+{
+    player.Reply("You jumped successfully");
+    return true;
+}
+All
+Example: jumping AND flying allowed
+
+[All(typeof(MyActionGate), nameof(MyJumpGate.Jumping), nameof(MyJumpGate.Flying))]
+bool OnJump(IPlayer player)
+{
+    player.Reply("You jumped successfully");
+    return true;
+}
+None
+Example: jumping OR flying disallowed
+
+// Neither jumping or flying is allowed
+[None(typeof(MyActionGate), nameof(MyJumpGate.Jumping), nameof(MyJumpGate.Flying))]
+bool OnJump(IPlayer player)
+{
+    player.Reply("You cannot jump or fly, try growing wings!");
+    return false;
+}
+Permission gate
+A permission gate combines the permission system with the Gate system.
+
+Registering permissions
+Every permission must be registered before it can be assigned, thus it is typical to register permissions early in the Loaded hook.
+
+void Loaded()
+{
+    Gate.Register("use_feature");
+}
+Assigning permissions
+All permissions are automatically prefixed with the name of the plugin that registered them.
+
+For example: pluginname.use_feature
+
+Permissions can be granted to an individual player or groups. It is recommended to grant permissions to groups and add players to the groups; not assign permissions to players directly.
+
+Grant permissions to a group and add a player to that group via authorization commands or the API.
+
+Grant a permission directly to the player via authorization commands or the API.
+
+Allows
+Use the built-in permission gate to check if a player is allowed a specific permission.
+
+void OnPlayerConnect(IPlayer player)
+{
+    if (Gate.Allows("use_feature", player))
+    {
+        // Player is allowed to use feature
+    }
+}
+Annotat a hook method with the Allows attribute to ensure the hook method is invoked only when the player is allowed the specified permission.
+
+[Allows("use_feature")]
+void OnPlayerConnect(IPlayer player)
+{
+    // Player is allowed to use feature
+}
+For the above code to work, the connecting player must have the pluginname.use_feature permission.
+
+Denies
+Use the built-in permission gate to check if a player is denied a specific permission.
+
+void OnPlayerConnect(IPlayer player)
+{
+    if (Gate.Denies("use_feature", player))
+    {
+        // Player is *not* allowed to use feature
+    }
+}
+Annotat a hook method with the Denies attribute to ensure the hook method is invoked only when the player is denied a specific permission.
+
+[Denies("use_feature")]
+void OnPlayerConnect(IPlayer player)
+{
+    // Player is *not* allowed to use feature
+}
+Default groups
+Some games provide authentication methods outside of uMod to grant special privileges. uMod will automatically assign the default groups: admin and moderators where appropriate.
+
+When a player is initialized after joining the server for the first time, they are automatically added to the default group. It is possible to customize the default group names, namely default, moderators, and admin in the config/auth.toml file.
+
+
+Introduction
+Different games use wildly different abstractions to represent players internally. uMod standardizes these varying implementations by providing a universal IPlayer interface which represents a player in any game that uMod supports.
+
+Information
+Name
+The player's in-game display name, which by default is usually the same as their Steam account alias (but not necessarily).
+
+Signature
+
+string Name { get; }
+Implementation
+
+Logger.Info(player.Name);
+Id
+The player's unique identification number, in many cases a 64-bit Steam ID (but not necessarily).
+
+Signature
+
+string Id { get; }
+Implementation
+
+Logger.Info(player.Id);
+Address
+The player's IPv4 or IPv6 IP address.
+
+Signature
+
+string Address { get; }
+Implementation
+
+Logger.Info(player.Address);
+Ping
+The player's average network ping.
+
+Signature
+
+int Ping { get; }
+Implementation
+
+Logger.Info(player.Ping);
+Language
+The player's currently configured language. For more information about CultureInfo, please see the official CultureInfo documentation.
+
+Signature
+
+CultureInfo Language { get; }
+Implementation
+
+Logger.Info(player.Language.DisplayName);
+IsConnected
+Determine whether a player is currently connected to the server.
+
+Signature
+
+bool IsConnected { get; }
+Implementation
+
+if (player.IsConnected)
+{
+    player.Reply("You are connected");
+}
+IsServer
+Determine whether a player is the server.
+
+Signature
+
+bool IsServer { get; }
+Implementation
+
+if (player.IsServer)
+{
+    player.Reply("You are the server");
+}
+Administration
+IsAdmin
+Determine whether a player is an administrator.
+
+Signature
+
+bool IsAdmin { get; }
+Implementation
+
+if (player.IsAdmin)
+{
+    player.Reply("You are an admin");
+}
+IsBanned
+Determine whether a player is banned from the server.
+
+Signature
+
+bool IsBanned { get; }
+Implementation
+
+if (player.IsBanned)
+{
+    Logger.Info("Banned player tried to connect");
+}
+BanTimeRemaining
+The amount of time left before a player is unbanned (if ban is temporary). For more information about TimeSpan, please see the official TimeSpan documentation.
+
+Signature
+
+TimeSpan BanTimeRemaining { get; }
+Implementation
+
+if (player.IsBanned)
+{
+    Logger.Info($"Banned player ({player.Name}) attempted to connect but is banned for {player.BanTimeRemaining.TotalDays} days");
+}
+Ban
+Bans a player from the server. For more information about TimeSpan, please see the official TimeSpan documentation.
+
+Signature
+
+void Ban(string reason, TimeSpan duration = null)
+Implementation
+
+player.Ban("reason"); // Ban player indefinitely
+player.Ban("reason", new TimeSpan(2, 0, 0)); // Ban player for 2 hours
+Unban
+Unbans a player, allowing them to connect to the server again.
+
+Signature
+
+void Unban()
+Implementation
+
+player.Unban();
+Kick
+Kicks a player from the server.
+
+Signature
+
+void Kick(string reason)
+Implementation
+
+player.Kick();
+Character
+Health
+Retrieve or update a player's health.
+
+Signature
+
+float Health { get; set; }
+Implementation
+
+float health = player.Health;
+player.Health = 100f;
+MaxHealth
+Retrieve or update a player's maximum health.
+
+Signature
+
+float MaxHealth { get; set; }
+Implementation
+
+float maxHealth = player.MaxHealth;
+player.MaxHealth = 50f;
+Heal
+Heals a player's health a given amount.
+
+Signature
+
+void Heal(float amount);
+Implementation
+
+player.Heal(100f);
+Hurt
+Hurts a player's health a given amount.
+
+Signature
+
+void Hurt(float amount);
+Implementation
+
+player.Hurt(100f);
+Kill
+Kills a player, causing them to die.
+
+Signature
+
+void Kill();
+Implementation
+
+player.Kill();
+Rename
+Renames a player, changing their in-game name.
+
+Signature
+
+void Rename(string name);
+Implementation
+
+player.Rename("EpicName");
+Location
+Teleport
+Teleports a player to the given world position.
+
+Signature
+
+void Teleport(float x, float y, float z);
+void Teleport(Position position);
+Implementation
+
+player.Teleport(1, 2, 3);
+player.Teleport(new Position (1, 2, 3 ));
+Position
+Retrieve a player's in-game character position
+
+Signature
+
+void Position();
+Implementation
+
+Position position = player.Position();
+Unity vectors
+The universal vectors Point, Position, and Position4 can all be converted to and from their Unity counterparts with the following extension methods..
+
+Vector2.ToPoint();
+Point.ToVector2();
+Vector3.ToPosition();
+Position.ToVector3();
+Vector4.ToPosition4();
+Position4.ToVector4();
+Chat and commands
+Message
+Sends the given message and prefix to a player.
+
+Signature
+
+void Message(string message, string prefix = null, params object[] args)
+Implementation
+
+player.Message("hello world");
+Reply
+Sends the given message and prefix to a player.
+
+Signature
+
+void Reply(string message, string prefix = null, params object[] args = null)
+Implementation
+
+player.Reply("hello world");
+Command
+Runs the given console command as a player.
+
+Signature
+
+void Command(string command, params object[] args = null)
+Implementation
+
+player.Command("command", arg1, arg2 /* , ... */ );
+Permissions
+HasPermission
+Checks if a player has the given permission.
+
+Signature
+
+bool HasPermission(string permission)
+Implementation
+
+if (player.HasPermission("epicstuff.use"))
+{
+    player.Reply("You have the epic permission");
+}
+GrantPermission
+Grants a given permission to a player.
+
+Signature
+
+void GrantPermission(string permission)
+Implementation
+
+player.GrantPermission("epicstuff.use");
+RevokePermission
+Removes a given permission from a player.
+
+Signature
+
+void RevokePermission(string permission)
+Implementation
+
+player.RevokePermission("epicstuff.use");
+BelongsToGroup
+Checks if a player belongs to a given group.
+
+Signature
+
+bool BelongsToGroup(string groupName)
+Implementation
+
+if (player.BelongsToGroup("admin"))
+{
+    player.Reply("You are in the admin group");
+}
+AddToGroup
+Adds a player to a given group.
+
+Signature
+
+void AddToGroup(string groupName)
+Implementation
+
+player.AddToGroup("admin");
+RemoveFromGroup
+Removes a player from a given group.
+
+Signature
+
+void RemoveFromGroup(string groupName)
+Implementation
+
+player.RemoveFromGroup("admin");
+Player manager
+To find an instance of an arbitrary player, the IPlayerManager is available by default in all plugins.
+
+FindPlayer
+Signature
+
+IPlayer FindPlayer(string partialNameOrIdOrIp, PlayerFilter playerFilter)
+Implementation
+
+void Loaded(IPlayerManager playerManager)
+{
+    IPlayer player = playerManager.FindPlayer("Calytic");
+    if (player.IsConnected)
+    {
+        Logger.Info("Calytic is online!");
+    }
+}
+PlayerFilter
+The player search may be filtered according the following bitwise enumerator or any combination of the following characteristics.
+
+enum PlayerFilter
+{
+    All = 0,
+    Connected = 1,
+    Admin = 2,
+    Moderator = 4,
+    Banned = 8,
+    Alive = 16,
+    Dead = 32,
+    Sleeping = 64
+}
+Filters may be combined using a bitwise or or pipe operator, for example...
+
+IPlayer player = playerManager.FindPlayer("Calytic", PlayerFilter.Connected | PlayerFilter.Alive);
+if (player != null)
+{
+    Logger.Info("Calytic is online AND alive");
+}
+FindPlayers
+Find multiple players who match the specified partial name.
+
+Signature
+
+IEnumerable<IPlayer> FindPlayers(string partialNameOrIdOrIp, PlayerFilter playerFilter)
+Implementation
+
+void Loaded(IPlayerManager playerManager)
+{
+    IEnumerable<IPlayer> players = playerManager.FindPlayers("Cal");
+    Logger.Info($"Found {players.Count()} players");
+    foreach(IPlayer player in players)
+    {
+        Logger.Info(player.Name);
+    }
+}
+Find multiple players who match the specified filter.
+
+Signature
+
+IEnumerable<IPlayer> FindPlayers(PlayerFilter playerFilter)
+Implementation
+
+void Loaded(IPlayerManager playerManager)
+{
+    IEnumerable<IPlayer> players = playerManager.FindPlayers(PlayerFilter.Sleeping);
+    Logger.Info($"Found {players.Count()} sleeping players");
+    foreach(IPlayer player in players)
+    {
+        Logger.Info(player.Name);
+    }
+}
+FindPlayerById
+Find a specific player which may often be faster than the above methods.
+
+Signature
+
+IPlayer FindPlayerById(string playerId)
+Implementation
+
+IPlayer player = playerManager.FindPlayerById("playerid");
+FindPlayerByObj
+Find an IPlayer from the game-specific player object.
+
+Signature
+
+IPlayer FindPlayerByObj(object playerObj)
+Implementation
+
+IPlayer player = playerManager.FindPlayerByObj(basePlayer);
+GamePlayer.IPlayer Property
+As an alternative to the above FindPlayerByObj, the IPlayer instance may also be obtained from an IPlayer property patched into the game-specific player object.
+
+IPlayer player = basePlayer.IPlayer;
+IPlayer.Object property
+Get a the GamePlayer associated with an IPlayer.
+
+Signature
+
+object Object;
+Implementation
+
+object player = player.Object;
+IPlayer and "GamePlayer" substitution
+IPlayer is the universal representation of a player available across all games. GamePlayer itself does not exist but refers to whatever concrete implementation that represents a player within a specific game (e.g. BasePlayer, PlayerSession, etc).
+
+Hook and command parameters may substitute an IPlayer instance for a GamePlayer instance and vice-versa. Substitution is not a casting operation as the parameters are substituted at run-time. This substitution is a special behavior and does not rely on the service container like normal parameter substitution.
+
+void OnPlayerConnected(IPlayer player) { }
+void OnPlayerConnected(BasePlayer player) { } // Rust
+void OnPlayerConnected(PlayerSession player) { } // Hurtworld
+// etc..
+OnlinePlayers decorator
+Scaffold custom data structures to automatically wrap the IPlayer instances when new players connect.
+
+class PlayerDisease
+{
+    public IPlayer Player;
+    public bool HasPlague = false;
+    public bool HasScurvy = false;
+}
+
+[OnlinePlayers]
+private Hash<IPlayer, PlayerDisease> DiseasedPlayers = new Hash<IPlayer, PlayerDisease>();
+In the above example, when a player connects a new PlayerDisease object is created and added to the DiseasedPlayers hash table. Conversely, when the player disconnects they are removed from the hash table.
+
+The hash table may be keyed by an IPlayer instance or a GamePlayer instance and the decorator must define a corresponding field named Player by the same type as the hash key. Any type of hash table may be used, including a Dictionary<,>.
+
+OnlinePlayers OnConnect/OnDisconnect
+If the wrapper class needs to be notified when the player connects or disconnects, the OnConnect and/or OnDisconnect methods may be implemented.
+
+class PlayerDisease
+{
+    public IPlayer Player;
+    public bool HasPlague = false;
+    public bool HasScurvy = false;
+
+    void OnConnect()
+    {
+        // The player connected
+    }
+
+    void OnDisconnect()
+    {
+        // The player disconnected
+    }
+}
+OnlinePlayers file persistence
+Instead of implementing file handling to save and load wrapper classes, use the OnlinePlayers attribute path option.
+
+[OnlinePlayers("diseased_players/{Id}.json")]
+private Hash<IPlayer, PlayerDisease> DiseasedPlayers = new Hash<IPlayer, PlayerDisease>();
+The PlayerDisease data will now be persisted automatically to/from the JSON file umod/data/diseased_players/############.json when the player connects or disconnects.
+
+
+Introduction
+A dependency is a plugin that another plugin requires in order to perform a particular function.
+
+It is strongly recommended to separate functionality into different plugins, collaborate with other developers, and search for other plugins that might contain needed functionality as opposed to rewriting it every time.
+
+Modularity and interopability
+It is recommend to use SOLID object oriented design principles when implementing plugins to maximize flexibility. Using these principles correctly means that functionality is refactored into smaller more digestible pieces of code. Ideally each class or method should have the least amount of code and responsibilities possible.
+
+This approach is beneficial because it...
+
+Prevents code from becoming spaghetti (or a big mess).
+Ensures that error messages remain as useful as possible.
+Code remains easy to understand and maintain.
+Larger API surface for potential integrations.
+As systems become more complex, a good rule of thumb is to refactor any code after it is used in more than 2 places. To learn more about developing SOLID applications, please consider using software design patterns.
+
+Optional
+An optional dependency references a plugin that is not required but can provide additional functionality if it is loaded.
+
+The property name must match the name of the plugin being referenced unless named explicitly by the Optional attribute.
+
+Implicit
+Implement an implicit dependency using one of the following global abstractions (uMod.Common.IPlugin or Plugin).
+
+[Optional]
+private IPlugin EpicStuff;
+
+void Loaded()
+{
+    if (EpicStuff != null)
+    {
+        EpicStuff.Call("SomeMethod");
+    }
+}
+By default the EpicStuff property will be null. When another plugin named EpicStuff is loaded then the EpicStuff property is automatically assigned with a reference to that plugin. Conversely, when EpicStuff is unloaded the property will be set back to null.
+
+Explicit
+Implement an explicit dependency by referencing the class of the plugin directly.
+
+[Optional]
+private EpicStuff EpicStuff;
+Though the dependency is marked optional, because it is explicitly defined the dependent plugin will still fail to compile if the EpicStuff plugin is not loaded. Use duck typing to implement optional dependencies that are also explicitly typed.
+
+Requires
+A required dependency ensures that a plugin will not load unless the dependency is loaded.
+
+The property name must match the name of the plugin being referenced unless named explicitly by the Requires attribute.
+
+Implicit
+Implement an implicit requirement using one of the following global abstractions (uMod.Common.IPlugin or Plugin).
+
+[Requires]
+private IPlugin EpicStuff;
+The dependent plugin will fail to load if the EpicStuff plugin is not also loaded.
+
+Explicit
+Implement an explicit requirement by referencing the class of the plugin directly.
+
+[Requires]
+private EpicStuff EpicStuff;
+The dependent plugin will fail to compile if the EpicStuff plugin is not also loaded.
+
+Named dependency
+A plugin dependency field must have the same name as the plugin class name (e.g. "HelpText"). However, the property may have a different name if the plugin class name is specified by the plugin reference attribute.
+
+[Optional("HelpText")]
+private IPlugin HelpPlugin;
+Interchangable dependency
+The optional attribute may specify multiple dependency names when a plugin needs to depend on multiple plugins that serve the same purpose (or have the same API).
+
+[Optional("HelpText", "AdvancedHelpText")]
+private IPlugin HelpPlugin;
+Incremental compilation
+The uMod compiler is an "incremental compiler." An incremental compiler can compile and load plugins without interupting the operation of other currently loaded plugins. Each plugin is compiled in isolation because it only compiles the changes of a known set of plugins and overloads (in-memory) any previous plugin assemblies.
+
+While an incremental compiler is important to maintain availability, it also makes managing dependencies more difficult and, in some cases, adversely affects the performance of plugin integrations.
+
+For those familiar with C# application development, when a reference is added to a project then the project has direct access to all of the classes and methods within the referenced assembly. Further, classes within the same assembly also have direct access to eachother.
+
+Implementing implicitly typed dependencies creates a "loose joint" by referencing global abstractions like uMod.Common.IPlugin interface.
+
+Implementing explicitly typed dependencies creates a "hard joint", binding both plugins together directly (similar to C# project references). Explicit dependencies require that both plugins must be compiled together, and this is handled automatically by the incrmental compiler.
+
+
+A timer invokes a callback or anonymous function after a set interval.
+
+Once
+Execute once after the specified delay interval (in seconds).
+
+timer.Once(1f, () =>
+{
+    Logger.Info("Hello world!");
+});
+Every
+Execute forever or until the timer is manually destroyed (or the plugin is unloaded).
+
+timer.Every(3f, () =>
+{
+    Logger.Info("Hello world!");
+});
+Repeat
+Execute repeatedly until the timer is executed the specified number of times.
+
+timer.Repeat(5f, 0, () =>
+{
+    Logger.Info("Hello world!");
+});
+RepeatUntil
+Execute repeatedly until the specified condition is satisfied.
+
+int count = 0;
+timer.RepeatUntil(5f, () => count == 5, () =>
+{
+    count++;
+    Logger.Info($"Hello {count}");
+});
+NextFrame
+Execute immediately in the next frame.
+
+timer.NextFrame(() =>
+{
+    Logger.Info("Hello world!");
+});
+Destroy timers
+When a timer is no longer operating, it is marked as destroyed. Timers may also be destroyed manually if stored in a variable.
+
+Timer myTimer = timer.Every(3f, () =>
+{
+    Logger.Info("Hello world!");
+});
+
+myTimer.Destroy();
+if (myTimer.Destroyed)
+{
+    Logger.Info("Timer destroyed!");
+}
+
+Introduction
+uMod includes logging abstractions to log messages in a variety of ways (ex. files, game consoles, and third-party services).
+
+Configuration
+Logging messages created via the API below will be broadcast according to the logging configuration.
+
+Log levels
+The level option above will configure the minimum level of log messages that the log channel will log. The log levels are compliant with the RFC 5424 specification of the syslog protocol. The levels include: emergency, alert, critical, error, warning, notice, info, and debug in order of importance.
+
+emergency - System is unusable
+alert - Action must be taken immediately
+critical - Critical conditions
+error - Error conditions
+warning - Warning conditions
+notice - Normal but significant condition
+info - Informational messages
+debug - Debugging messages
+If a logger is configured with the info level, the debug message (with a lower priority) will be ignored.
+
+Logger.Debug("A debug message");
+Write to channel
+The methods below will broadcast a message at various log levels.
+
+Logger.Emergency("Emergency!");
+Logger.Alert("Alert!");
+Logger.Critical("Critical!");
+Logger.Error("Error!");
+Logger.Warning("Warning!");
+Logger.Notice("Notice!");
+Logger.Info("Info!");
+Logger.Debug("Debug!");
+Customize logging
+Implement a custom logging method by annotating a plugin with the [Log] or [LogDaily] attributes.
+
+Configured log
+Any logger configured globally can be referenced by name.
+
+namespace uMod.Plugins
+{
+    [Info("Epic Stuff", "Unknown Author", "0.1.0")]
+    [Description("Makes epic stuff happen")]
+    [Log("sentry")]
+    class EpicStuff : Plugin
+    {
+        /* ... */
+    }
+}
+Default log
+Specifying a custom logger will override the default logging functionality.
+
+Send logs to the default logger and a custom logger by annotating the plugin with the [Log] attribute and specifying "default" as the name.
+
+namespace uMod.Plugins
+{
+    [Info("Epic Stuff", "Unknown Author", "0.1.0")]
+    [Description("Makes epic stuff happen")]
+    [Log("default")]
+    class EpicStuff : Plugin
+    {
+        /* ... */
+    }
+}
+Single file logger
+Log everything to a single file unique to a plugin.
+
+namespace uMod.Plugins
+{
+    [Info("Epic Stuff", "Unknown Author", "0.1.0")]
+    [Description("Makes epic stuff happen")]
+    [Log("default")]
+    [Log("epic_log", "epic_stuff.log")]
+    class EpicStuff : Plugin
+    {
+        /* ... */
+    }
+}
+Daily logger
+Rotate custom logging files by annotating a plugin with the [LogDaily] attribute and specifying a date format.
+
+namespace uMod.Plugins
+{
+    [Info("Epic Stuff", "Unknown Author", "0.1.0")]
+    [Description("Makes epic stuff happen")]
+    [Log("default")]
+    [LogDaily("epic_log", "epic_stuff_{date|yyyy-MM-dd}.log")]
+    class EpicStuff : Plugin
+    {
+        /* ... */
+    }
+}
+
+
+uMod features a custom markup language, which is used for creating universally styling text across games. It works by converting any text passed through the supported methods and converts it to the compatible text styling for each specific game (if the game supports text styling).
+
+Formatting
+Bold
+[b]bold text[/b]
+
+string text = "[b]hello world[/b]";
+string formattedText = uMod.Text.Formatter.Format(text);
+Logger.Info(formattedText);
+Italic
+[i]italic text[/i]
+
+string text = "[i]hello world[/i]";
+string formattedText = uMod.Text.Formatter.Format(text);
+Logger.Info(formattedText);
+Color
+[#white]white text[/#]
+[#black]black text[/#]
+
+Color Names
+
+aqua
+black
+blue
+brown
+cyan
+darkblue
+fuchsia
+green
+grey
+lightblue
+lime
+magenta
+maroon
+navy
+olive
+orange
+purple
+red
+silver
+teal
+white
+yellow
+RGB
+[#FFFFFF]white text[/#]
+[#000000]black text[/#]
+
+string text = "[#342543]hello world[/#]";
+string formattedText = uMod.Text.Formatter.Format(text);
+Logger.Info(formattedText);
+RGBA
+[#FFFFFFFF]white text[/#]
+[#00000FF]black text[/#]
+
+string text = "[#34254350]hello world[/#]";
+string formattedText = uMod.Text.Formatter.Format(text);
+Logger.Info(formattedText);
+Size
+[+4]size 4 text[/4]
+
+string text = "[+4]hello world[/4]";
+string formattedText = uMod.Text.Formatter.Format(text);
+Logger.Info(formattedText);
+Player messages
+Sending messages to players using IPlayer.Message or IPlayer.Reply will automatically format messages.
+
+The Basics
+Plugins
+Hooks
+Commands
+Validation
+Configuration
+Localization
+Schematics
+Filesystem
+Preprocessors
+Gates
+Players
+Integration
+Timers
+Logging
